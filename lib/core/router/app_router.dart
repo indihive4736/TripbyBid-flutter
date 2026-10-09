@@ -42,6 +42,8 @@ GoRouter createRouter(AuthBloc authBloc, OnboardingRepository onboarding) {
       return switch (authBloc.state) {
         AuthUnknown() => location == AppRoutes.splash ? null : AppRoutes.splash,
         Unauthenticated() when isPublic && location != AppRoutes.splash => null,
+        // An expired session goes straight to login, which explains why.
+        Unauthenticated(sessionExpired: true) => AppRoutes.login,
         Unauthenticated() =>
           onboarding.introSeen ? AppRoutes.welcome : AppRoutes.intro,
         Authenticated() => isPublic ? AppRoutes.home : null,

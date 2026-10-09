@@ -15,6 +15,8 @@ import '../../features/auth/domain/usecases/sign_up_usecases.dart';
 import '../../features/auth/domain/usecases/watch_session_ended_usecase.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/login_cubit.dart';
+import '../../features/auth/presentation/bloc/signup_cubit.dart';
+import '../../features/auth/presentation/bloc/verify_email_cubit.dart';
 import '../../features/chat/data/datasources/chat_remote_data_source.dart';
 import '../../features/chat/data/repositories/chat_repository_impl.dart';
 import '../../features/chat/domain/repositories/chat_repository.dart';
@@ -27,7 +29,9 @@ import '../../features/notifications/domain/repositories/notifications_repositor
 import '../../features/notifications/domain/usecases/notification_usecases.dart';
 import '../../features/notifications/presentation/bloc/notifications_cubit.dart';
 import '../../features/onboarding/data/onboarding_repository_impl.dart';
+import '../../features/onboarding/domain/mark_intro_seen_usecase.dart';
 import '../../features/onboarding/domain/onboarding_repository.dart';
+import '../../features/onboarding/presentation/bloc/intro_cubit.dart';
 import '../../features/payments/data/datasources/payments_remote_data_source.dart';
 import '../../features/payments/data/gateways/cashfree_payment_gateway.dart';
 import '../../features/payments/data/repositories/payments_repository_impl.dart';
@@ -88,7 +92,9 @@ void configureDependencies({
         baseUrl: AppConfig.apiBaseUrl,
       ),
     )
-    ..registerSingleton<OnboardingRepository>(OnboardingRepositoryImpl(prefs));
+    ..registerSingleton<OnboardingRepository>(OnboardingRepositoryImpl(prefs))
+    ..registerLazySingleton(() => MarkIntroSeenUseCase(sl()))
+    ..registerFactory(() => IntroCubit(markIntroSeen: sl()));
 
   _registerAuth();
   _registerTrips();
@@ -120,7 +126,11 @@ void _registerAuth() {
       () =>
           AuthBloc(getCurrentUser: sl(), logout: sl(), watchSessionEnded: sl()),
     )
-    ..registerFactory(() => LoginCubit(login: sl()));
+    ..registerFactory(() => LoginCubit(login: sl(), resendCode: sl()))
+    ..registerFactory(() => SignupCubit(signUp: sl(), getCurrentUser: sl()))
+    ..registerFactory(
+      () => VerifyEmailCubit(verifyEmail: sl(), resendCode: sl()),
+    );
 }
 
 void _registerTrips() {
