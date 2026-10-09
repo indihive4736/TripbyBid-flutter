@@ -23,6 +23,7 @@ import '../../features/notifications/data/datasources/notifications_remote_data_
 import '../../features/notifications/data/repositories/notifications_repository_impl.dart';
 import '../../features/notifications/domain/repositories/notifications_repository.dart';
 import '../../features/notifications/domain/usecases/notification_usecases.dart';
+import '../../features/notifications/presentation/bloc/notifications_cubit.dart';
 import '../../features/onboarding/data/onboarding_repository_impl.dart';
 import '../../features/onboarding/domain/onboarding_repository.dart';
 import '../../features/payments/data/datasources/payments_remote_data_source.dart';
@@ -37,9 +38,12 @@ import '../../features/profile/domain/usecases/profile_usecases.dart';
 import '../../features/trips/data/datasources/trips_remote_data_source.dart';
 import '../../features/trips/data/repositories/trips_repository_impl.dart';
 import '../../features/trips/domain/repositories/trips_repository.dart';
+import '../../features/trips/domain/usecases/get_active_bids_usecase.dart';
 import '../../features/trips/domain/usecases/post_trip_request.dart';
 import '../../features/trips/domain/usecases/trip_actions.dart';
 import '../../features/trips/domain/usecases/trip_queries.dart';
+import '../../features/trips/presentation/home/home_cubit.dart';
+import '../../features/trips/presentation/list/trips_list_cubit.dart';
 import '../config/app_config.dart';
 import '../network/access_token_provider.dart';
 import '../network/api_client.dart';
@@ -124,7 +128,16 @@ void _registerTrips() {
     ..registerLazySingleton(() => VerifyTicketUseCase(sl()))
     ..registerLazySingleton(() => RequestCorrectionUseCase(sl()))
     ..registerLazySingleton(() => RaiseSupportTicketUseCase(sl()))
-    ..registerLazySingleton(() => RateAgentUseCase(sl()));
+    ..registerLazySingleton(() => RateAgentUseCase(sl()))
+    ..registerLazySingleton(() => GetActiveBidsUseCase(sl()))
+    ..registerFactory(
+      () => HomeCubit(
+        getMyTrips: sl(),
+        getActiveBids: sl(),
+        getUnreadCount: sl(),
+      ),
+    )
+    ..registerFactory(() => TripsListCubit(getMyTrips: sl()));
 }
 
 void _registerPayments() {
@@ -171,7 +184,15 @@ void _registerNotifications() {
     ..registerLazySingleton(() => GetNotificationsUseCase(sl()))
     ..registerLazySingleton(() => GetUnreadCountUseCase(sl()))
     ..registerLazySingleton(() => MarkNotificationReadUseCase(sl()))
-    ..registerLazySingleton(() => MarkAllNotificationsReadUseCase(sl()));
+    ..registerLazySingleton(() => MarkAllNotificationsReadUseCase(sl()))
+    ..registerFactory(
+      () => NotificationsCubit(
+        getNotifications: sl(),
+        markRead: sl(),
+        markAllRead: sl(),
+        getMyTrips: sl(),
+      ),
+    );
 }
 
 void _registerProfile() {
