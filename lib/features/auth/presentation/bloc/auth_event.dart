@@ -12,7 +12,7 @@ final class AuthStarted extends AuthEvent {
   const AuthStarted();
 }
 
-/// The login form succeeded.
+/// Login or email verification succeeded.
 final class AuthLoggedIn extends AuthEvent {
   const AuthLoggedIn(this.user);
 
@@ -24,4 +24,9 @@ final class AuthLoggedIn extends AuthEvent {
 
 final class AuthLogoutRequested extends AuthEvent {
   const AuthLogoutRequested();
+}
+
+/// The session expired or was revoked while the app was in use.
+final class AuthSessionEnded extends AuthEvent {
+  const AuthSessionEnded();
 }

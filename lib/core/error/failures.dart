@@ -50,3 +50,10 @@ final class CacheFailure extends Failure {
 final class ValidationFailure extends Failure {
   const ValidationFailure(super.message);
 }
+
+/// Sign-in was refused because the account's email is not verified yet.
+final class EmailNotVerifiedFailure extends Failure {
+  const EmailNotVerifiedFailure([
+    super.message = 'Verify your email first — use the code we sent you.',
+  ]);
+}

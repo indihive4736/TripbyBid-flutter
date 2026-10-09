@@ -1,33 +1,31 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
 import 'package:tripbybid/core/error/failures.dart';
 import 'package:tripbybid/core/error/result.dart';
-import 'package:tripbybid/core/usecase/usecase.dart';
+import 'package:tripbybid/features/auth/domain/usecases/get_current_user_usecase.dart';
+import 'package:tripbybid/features/auth/domain/usecases/logout_usecase.dart';
+import 'package:tripbybid/features/auth/domain/usecases/watch_session_ended_usecase.dart';
 import 'package:tripbybid/features/auth/presentation/bloc/auth_bloc.dart';
 
+import '../../../../helpers/fakes.dart';
 import '../../../../helpers/fixtures.dart';
-import '../../../../helpers/mocks.dart';
 
 void main() {
-  late MockGetCurrentUserUseCase getCurrentUser;
-  late MockLogoutUseCase logout;
+  late FakeAuthRepository repository;
 
-  setUpAll(provideResultDummies);
+  setUp(() => repository = FakeAuthRepository());
 
-  setUp(() {
-    getCurrentUser = MockGetCurrentUserUseCase();
-    logout = MockLogoutUseCase();
-  });
-
-  AuthBloc build() => AuthBloc(getCurrentUser: getCurrentUser, logout: logout);
+  AuthBloc build() => AuthBloc(
+    getCurrentUser: GetCurrentUserUseCase(repository),
+    logout: LogoutUseCase(repository),
+    watchSessionEnded: WatchSessionEndedUseCase(repository),
+  );
 
   test('starts unknown', () => expect(build().state, const AuthUnknown()));
 
   blocTest<AuthBloc, AuthState>(
     'AuthStarted with a stored session → Authenticated',
-    setUp: () =>
-        when(getCurrentUser(any)).thenAnswer((_) async => const Ok(tUser)),
+    setUp: () => repository.currentUserResult = const Ok(tUser),
     build: build,
     act: (bloc) => bloc.add(const AuthStarted()),
     expect: () => [const Authenticated(tUser)],
@@ -35,8 +33,6 @@ void main() {
 
   blocTest<AuthBloc, AuthState>(
     'AuthStarted without a session → Unauthenticated',
-    setUp: () =>
-        when(getCurrentUser(any)).thenAnswer((_) async => const Ok(null)),
     build: build,
     act: (bloc) => bloc.add(const AuthStarted()),
     expect: () => [const Unauthenticated()],
@@ -44,9 +40,7 @@ void main() {
 
   blocTest<AuthBloc, AuthState>(
     'AuthStarted failing → Unauthenticated',
-    setUp: () => when(
-      getCurrentUser(any),
-    ).thenAnswer((_) async => const Err(NetworkFailure())),
+    setUp: () => repository.currentUserResult = const Err(NetworkFailure()),
     build: build,
     act: (bloc) => bloc.add(const AuthStarted()),
     expect: () => [const Unauthenticated()],
@@ -61,11 +55,18 @@ void main() {
 
   blocTest<AuthBloc, AuthState>(
     'AuthLogoutRequested logs out → Unauthenticated',
-    setUp: () => when(logout(any)).thenAnswer((_) async => const Ok(null)),
     build: build,
     seed: () => const Authenticated(tUser),
     act: (bloc) => bloc.add(const AuthLogoutRequested()),
     expect: () => [const Unauthenticated()],
-    verify: (_) => verify(logout(const NoParams())).called(1),
+    verify: (_) => expect(repository.calls, ['logout']),
+  );
+
+  blocTest<AuthBloc, AuthState>(
+    'a session that ends on its own signs out with sessionExpired',
+    build: build,
+    seed: () => const Authenticated(tUser),
+    act: (_) => repository.endSession(),
+    expect: () => [const Unauthenticated(sessionExpired: true)],
   );
 }

@@ -1,4 +1,3 @@
-import 'package:tripbybid/core/network/auth_tokens.dart';
 import 'package:tripbybid/features/auth/data/models/user_model.dart';
 import 'package:tripbybid/features/auth/domain/entities/user.dart';
 
@@ -34,10 +33,4 @@ const tUser = User(
   role: UserRole.traveler,
   verified: true,
   phone: '+919800000000',
-);
-
-final tTokens = AuthTokens(
-  accessToken: 'access-1',
-  refreshToken: 'refresh-1',
-  expiresAt: DateTime.utc(2026, 10, 10, 12),
 );

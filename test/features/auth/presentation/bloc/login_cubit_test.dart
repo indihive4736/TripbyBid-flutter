@@ -1,29 +1,25 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
 import 'package:tripbybid/core/error/failures.dart';
 import 'package:tripbybid/core/error/result.dart';
 import 'package:tripbybid/features/auth/domain/usecases/login_usecase.dart';
 import 'package:tripbybid/features/auth/presentation/bloc/login_cubit.dart';
 
+import '../../../../helpers/fakes.dart';
 import '../../../../helpers/fixtures.dart';
-import '../../../../helpers/mocks.dart';
 
 void main() {
-  late MockLoginUseCase login;
+  late FakeAuthRepository repository;
 
-  setUpAll(provideResultDummies);
+  setUp(() => repository = FakeAuthRepository());
 
-  setUp(() => login = MockLoginUseCase());
-
-  const params = LoginParams(email: 'asha@example.com', password: 'secret');
+  LoginCubit build() => LoginCubit(login: LoginUseCase(repository));
 
   blocTest<LoginCubit, LoginState>(
     'emits submitting then success with the user',
-    setUp: () => when(login(params)).thenAnswer((_) async => const Ok(tUser)),
-    build: () => LoginCubit(login: login),
-    act: (cubit) =>
-        cubit.submit(email: params.email, password: params.password),
+    setUp: () => repository.loginResult = const Ok(tUser),
+    build: build,
+    act: (cubit) => cubit.submit(email: 'asha@example.com', password: 'secret'),
     expect: () => [
       const LoginState(status: LoginStatus.submitting),
       const LoginState(status: LoginStatus.success, user: tUser),
@@ -32,27 +28,26 @@ void main() {
 
   blocTest<LoginCubit, LoginState>(
     'emits submitting then failure with the failure message',
-    setUp: () => when(login(any)).thenAnswer(
-      (_) async => const Err(UnauthorizedFailure('Invalid credentials')),
+    setUp: () => repository.loginResult = const Err(
+      UnauthorizedFailure('Email or password is incorrect.'),
     ),
-    build: () => LoginCubit(login: login),
-    act: (cubit) => cubit.submit(email: params.email, password: 'wrong'),
+    build: build,
+    act: (cubit) => cubit.submit(email: 'asha@example.com', password: 'wrong'),
     expect: () => [
       const LoginState(status: LoginStatus.submitting),
       const LoginState(
         status: LoginStatus.failure,
-        errorMessage: 'Invalid credentials',
+        errorMessage: 'Email or password is incorrect.',
       ),
     ],
   );
 
   blocTest<LoginCubit, LoginState>(
     'ignores a submit while one is in flight',
-    build: () => LoginCubit(login: login),
+    build: build,
     seed: () => const LoginState(status: LoginStatus.submitting),
-    act: (cubit) =>
-        cubit.submit(email: params.email, password: params.password),
+    act: (cubit) => cubit.submit(email: 'asha@example.com', password: 'secret'),
     expect: () => <LoginState>[],
-    verify: (_) => verifyZeroInteractions(login),
+    verify: (_) => expect(repository.calls, isEmpty),
   );
 }

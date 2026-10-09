@@ -16,7 +16,7 @@ class TripByBidApp extends StatefulWidget {
 
 class _TripByBidAppState extends State<TripByBidApp> {
   late final AuthBloc _authBloc = sl<AuthBloc>()..add(const AuthStarted());
-  late final GoRouter _router = createRouter(_authBloc);
+  late final GoRouter _router = createRouter(_authBloc, sl());
 
   @override
   void dispose() {
@@ -31,8 +31,8 @@ class _TripByBidAppState extends State<TripByBidApp> {
       value: _authBloc,
       child: MaterialApp.router(
         title: 'TripByBid',
+        debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
         routerConfig: _router,
       ),
     );

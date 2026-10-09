@@ -1,33 +1,29 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
 import 'package:tripbybid/core/error/failures.dart';
 import 'package:tripbybid/core/error/result.dart';
 import 'package:tripbybid/features/auth/domain/usecases/login_usecase.dart';
 
+import '../../../../helpers/fakes.dart';
 import '../../../../helpers/fixtures.dart';
-import '../../../../helpers/mocks.dart';
 
 void main() {
-  late MockAuthRepository repository;
+  late FakeAuthRepository repository;
   late LoginUseCase login;
 
-  setUpAll(provideResultDummies);
-
   setUp(() {
-    repository = MockAuthRepository();
+    repository = FakeAuthRepository();
     login = LoginUseCase(repository);
   });
 
   test('trims the email and delegates to the repository', () async {
-    when(
-      repository.login(email: 'asha@example.com', password: 'secret'),
-    ).thenAnswer((_) async => const Ok(tUser));
+    repository.loginResult = const Ok(tUser);
 
     final result = await login(
       const LoginParams(email: '  asha@example.com ', password: 'secret'),
     );
 
     expect(result, const Ok(tUser));
+    expect(repository.calls, ['login:asha@example.com']);
   });
 
   test('rejects an invalid email without calling the repository', () async {
@@ -39,7 +35,7 @@ void main() {
       result,
       const Err<Never>(ValidationFailure('Enter a valid email address.')),
     );
-    verifyZeroInteractions(repository);
+    expect(repository.calls, isEmpty);
   });
 
   test('rejects an empty password without calling the repository', () async {
@@ -48,26 +44,16 @@ void main() {
     );
 
     expect(result, isA<Err<Object?>>());
-    verifyZeroInteractions(repository);
+    expect(repository.calls, isEmpty);
   });
 
   test('passes repository failures through', () async {
-    when(
-      repository.login(
-        email: anyNamed('email'),
-        password: anyNamed('password'),
-      ),
-    ).thenAnswer(
-      (_) async => const Err(UnauthorizedFailure('Invalid credentials')),
-    );
+    repository.loginResult = const Err(EmailNotVerifiedFailure());
 
     final result = await login(
-      const LoginParams(email: 'asha@example.com', password: 'wrong'),
+      const LoginParams(email: 'asha@example.com', password: 'secret'),
     );
 
-    expect(
-      result,
-      const Err<Never>(UnauthorizedFailure('Invalid credentials')),
-    );
+    expect(result, const Err<Never>(EmailNotVerifiedFailure()));
   });
 }

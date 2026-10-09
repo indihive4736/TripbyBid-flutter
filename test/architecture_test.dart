@@ -38,7 +38,7 @@ void main() {
     r'^lib/features/[^/]+/(domain|data|presentation)/',
   ).firstMatch(path)?.group(1);
 
-  const pureCore = ['lib/core/error/', 'lib/core/usecase/'];
+  const pureCore = ['lib/core/error/', 'lib/core/usecase/', 'lib/core/utils/'];
   bool isPure(String path) =>
       layerOf(path) == 'domain' || pureCore.any(path.startsWith);
 
