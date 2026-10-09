@@ -19,6 +19,8 @@ import '../../features/chat/data/datasources/chat_remote_data_source.dart';
 import '../../features/chat/data/repositories/chat_repository_impl.dart';
 import '../../features/chat/domain/repositories/chat_repository.dart';
 import '../../features/chat/domain/usecases/chat_usecases.dart';
+import '../../features/chat/presentation/bloc/chat_cubit.dart';
+import '../../features/chat/presentation/bloc/inbox_cubit.dart';
 import '../../features/notifications/data/datasources/notifications_remote_data_source.dart';
 import '../../features/notifications/data/repositories/notifications_repository_impl.dart';
 import '../../features/notifications/domain/repositories/notifications_repository.dart';
@@ -35,6 +37,10 @@ import '../../features/profile/data/datasources/profile_remote_data_source.dart'
 import '../../features/profile/data/repositories/profile_repository_impl.dart';
 import '../../features/profile/domain/repositories/profile_repository.dart';
 import '../../features/profile/domain/usecases/profile_usecases.dart';
+import '../../features/profile/presentation/bloc/edit_profile_cubit.dart';
+import '../../features/profile/presentation/bloc/notification_settings_cubit.dart';
+import '../../features/profile/presentation/bloc/payment_history_cubit.dart';
+import '../../features/profile/presentation/bloc/profile_cubit.dart';
 import '../../features/trips/data/datasources/trips_remote_data_source.dart';
 import '../../features/trips/data/datasources/places_local_data_source.dart';
 import '../../features/trips/data/repositories/places_repository_impl.dart';
@@ -201,7 +207,16 @@ void _registerChat() {
     ..registerLazySingleton(() => GetConversationsUseCase(sl()))
     ..registerLazySingleton(() => GetMessagesUseCase(sl()))
     ..registerLazySingleton(() => SendMessageUseCase(sl()))
-    ..registerLazySingleton(() => MarkConversationReadUseCase(sl()));
+    ..registerLazySingleton(() => MarkConversationReadUseCase(sl()))
+    ..registerFactory(() => InboxCubit(getConversations: sl()))
+    ..registerFactory(
+      () => ChatCubit(
+        getConversations: sl(),
+        getMessages: sl(),
+        sendMessage: sl(),
+        markRead: sl(),
+      ),
+    );
 }
 
 void _registerNotifications() {
@@ -237,5 +252,16 @@ void _registerProfile() {
     ..registerLazySingleton(() => GetProfileUseCase(sl()))
     ..registerLazySingleton(() => UpdateProfileUseCase(sl()))
     ..registerLazySingleton(() => GetNotificationPreferencesUseCase(sl()))
-    ..registerLazySingleton(() => UpdateNotificationPreferencesUseCase(sl()));
+    ..registerLazySingleton(() => UpdateNotificationPreferencesUseCase(sl()))
+    ..registerFactory(() => ProfileCubit(getProfile: sl(), getMyTrips: sl()))
+    ..registerFactory(
+      () => EditProfileCubit(getProfile: sl(), updateProfile: sl()),
+    )
+    ..registerFactory(
+      () => NotificationSettingsCubit(
+        getPreferences: sl(),
+        updatePreferences: sl(),
+      ),
+    )
+    ..registerFactory(() => PaymentHistoryCubit(getHistory: sl()));
 }
