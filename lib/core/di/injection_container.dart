@@ -42,6 +42,7 @@ import '../../features/trips/domain/usecases/get_active_bids_usecase.dart';
 import '../../features/trips/domain/usecases/post_trip_request.dart';
 import '../../features/trips/domain/usecases/trip_actions.dart';
 import '../../features/trips/domain/usecases/trip_queries.dart';
+import '../../features/trips/presentation/detail/trip_detail_cubit.dart';
 import '../../features/trips/presentation/home/home_cubit.dart';
 import '../../features/trips/presentation/list/trips_list_cubit.dart';
 import '../config/app_config.dart';
@@ -137,7 +138,24 @@ void _registerTrips() {
         getUnreadCount: sl(),
       ),
     )
-    ..registerFactory(() => TripsListCubit(getMyTrips: sl()));
+    ..registerFactory(() => TripsListCubit(getMyTrips: sl()))
+    ..registerFactory(
+      () => TripDetailCubit(
+        getTripDetail: sl(),
+        getPaymentSummary: sl(),
+        payForBid: sl(),
+        acceptBid: sl(),
+        releaseBid: sl(),
+        cancelTrip: sl(),
+        updateTrip: sl(),
+        getCancellationQuote: sl(),
+        cancelBooking: sl(),
+        verifyTicket: sl(),
+        requestCorrection: sl(),
+        raiseSupportTicket: sl(),
+        rateAgent: sl(),
+      ),
+    );
 }
 
 void _registerPayments() {
