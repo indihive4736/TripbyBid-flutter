@@ -36,15 +36,21 @@ import '../../features/profile/data/repositories/profile_repository_impl.dart';
 import '../../features/profile/domain/repositories/profile_repository.dart';
 import '../../features/profile/domain/usecases/profile_usecases.dart';
 import '../../features/trips/data/datasources/trips_remote_data_source.dart';
+import '../../features/trips/data/datasources/places_local_data_source.dart';
+import '../../features/trips/data/repositories/places_repository_impl.dart';
 import '../../features/trips/data/repositories/trips_repository_impl.dart';
+import '../../features/trips/domain/repositories/places_repository.dart';
 import '../../features/trips/domain/repositories/trips_repository.dart';
 import '../../features/trips/domain/usecases/get_active_bids_usecase.dart';
 import '../../features/trips/domain/usecases/post_trip_request.dart';
+import '../../features/trips/domain/usecases/search_places.dart';
 import '../../features/trips/domain/usecases/trip_actions.dart';
 import '../../features/trips/domain/usecases/trip_queries.dart';
 import '../../features/trips/presentation/detail/trip_detail_cubit.dart';
 import '../../features/trips/presentation/home/home_cubit.dart';
 import '../../features/trips/presentation/list/trips_list_cubit.dart';
+import '../../features/trips/presentation/new_request/new_request_cubit.dart';
+import '../../features/trips/presentation/new_request/place_search_cubit.dart';
 import '../config/app_config.dart';
 import '../network/access_token_provider.dart';
 import '../network/api_client.dart';
@@ -139,6 +145,13 @@ void _registerTrips() {
       ),
     )
     ..registerFactory(() => TripsListCubit(getMyTrips: sl()))
+    ..registerLazySingleton<PlacesLocalDataSource>(
+      PlacesLocalDataSourceImpl.new,
+    )
+    ..registerLazySingleton<PlacesRepository>(() => PlacesRepositoryImpl(sl()))
+    ..registerLazySingleton(() => SearchPlacesUseCase(sl()))
+    ..registerFactory(() => NewRequestCubit(postTrip: sl()))
+    ..registerFactory(() => PlaceSearchCubit(searchPlaces: sl()))
     ..registerFactory(
       () => TripDetailCubit(
         getTripDetail: sl(),
