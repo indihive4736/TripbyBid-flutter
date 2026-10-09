@@ -26,14 +26,20 @@ The app talks only to the NestJS API. Never query Supabase tables directly from 
 
 ```bash
 flutter pub get
-flutter run                                  # run on a connected device / emulator
+dart run build_runner build -d               # generate test mocks (test/helpers/mocks.mocks.dart)
 flutter analyze                              # must be clean before a task is done
-dart format .
+dart format lib test
 dart fix --apply                             # mechanical lint fixes
-flutter test                                 # unit + widget tests
+flutter test                                 # unit, bloc, widget and architecture tests
 flutter test integration_test                # integration tests
-dart run build_runner build -d               # code generation (mocks, etc.)
+
+# Run against the local backend (`npm run start:dev` in ../tripbybid, port 3001)
+flutter run                                                        # iOS simulator: localhost works
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3001/api    # Android emulator
 ```
+
+`API_BASE_URL` (see `lib/core/config/app_config.dart`) must include the `/api` prefix. Plain HTTP is
+allowed only in Android debug builds and for local networking on iOS.
 
 ## Architecture — Clean Architecture, feature-first
 
@@ -65,15 +71,16 @@ Presentation never imports from `data/`, and Data never imports from `presentati
 
 ```
 lib/
-  ├── main.dart
+  ├── main.dart                        # configureDependencies() + runApp
+  ├── app.dart                         # MaterialApp.router, app-wide AuthBloc
   ├── core/                            # shared across features
-  │     ├── di/                        # get_it service locator setup (injection_container.dart)
-  │     ├── error/                     # Failure (pure Dart), exceptions thrown by data sources
-  │     ├── usecase/                   # UseCase<Type, Params> base (pure Dart)
-  │     ├── network/                   # API client, auth-token interceptor, connectivity
-  │     ├── router/                    # app routes
-  │     ├── theme/
-  │     └── utils/
+  │     ├── config/                    # AppConfig (--dart-define values)
+  │     ├── di/                        # get_it setup: injection_container.dart (`sl`)
+  │     ├── error/                     # Failure, Result (Ok/Err) — pure Dart; AppException (data layer)
+  │     ├── usecase/                   # UseCase<T, Params>, NoParams — pure Dart
+  │     ├── network/                   # ApiClient (bearer + token refresh), TokenStorage, AuthTokens
+  │     ├── router/                    # go_router routes + auth redirects
+  │     └── theme/
   └── features/
         └── <feature>/                 # e.g. auth, booking_requests, bids, bookings, chat, profile
               ├── domain/
@@ -85,11 +92,14 @@ lib/
               │     ├── models/            user_model.dart               (DTO + JSON)
               │     └── repositories/      auth_repository_impl.dart
               └── presentation/
-                    ├── bloc/              auth_bloc.dart, auth_event.dart, auth_state.dart
-                    ├── pages/             login_page.dart
-                    └── widgets/           feature-private widgets
-test/                                  # mirrors lib/ exactly
+                    ├── bloc/              auth_bloc.dart (+ part auth_event/auth_state), login_cubit.dart
+                    ├── pages/             login_page.dart, splash_page.dart
+                    └── widgets/           feature-private widgets (login_form.dart)
+test/                                  # mirrors lib/; shared mocks + fixtures in test/helpers/
 ```
+
+`features/auth` is the reference implementation — copy its shape for new features. `features/home` is a
+placeholder landing page.
 
 ### Layer rules
 
@@ -98,17 +108,22 @@ test/                                  # mirrors lib/ exactly
   annotations or any other third-party package. If an import isn't `dart:` or another pure-Dart
   domain/core file, it doesn't belong here.
 - Entities are immutable (`final` fields, `const` constructors) and hold no JSON logic.
-- Repository interfaces are `abstract interface class` and return `Future<Result<T>>` (a sealed
-  `Success`/`Failure` type in `core/error`), never throw.
+- Repository interfaces are `abstract interface class` and return `Future<Result<T>>` — `Ok(value)` or
+  `Err(failure)` from `core/error/result.dart` — and never throw.
+- Domain classes implement `==`/`hashCode` by hand (no `equatable` here).
 - One use case per action, with a single `call(...)` method that depends only on repository interfaces.
 
 **Data (`features/*/data/`)**
-- Data sources do the I/O (HTTP to the NestJS API, local storage) and **throw** exceptions from
-  `core/error` (`ServerException`, `CacheException`, …).
-- Models are DTOs that own `fromJson`/`toJson` and map explicitly with `toEntity()` / `fromEntity()`.
-  Entities never leak JSON.
-- Repository implementations implement the domain interface, call data sources, catch exceptions and
-  convert them into `Failure`s.
+- Remote data sources call the API only through `ApiClient` (never `http` directly). It attaches the
+  bearer token, refreshes it before expiry and once on a 401, and maps errors to `AppException`s.
+  Refresh is single-flight on purpose: the backend revokes the whole session when a refresh token is
+  reused. Pass `authenticated: false` for public endpoints.
+- Data sources **throw** `AppException`s (`ServerException`, `NetworkException`,
+  `UnauthorizedException`, `CacheException`).
+- Models are DTOs that own `fromJson`/`toJson` (parse with Dart 3 map patterns; throw
+  `FormatException` on bad payloads) and map explicitly with `toEntity()`. Entities never see JSON.
+- Repository implementations implement the domain interface, call data sources, and convert caught
+  `AppException`s with `e.toFailure()`.
 
 **Presentation (`features/*/presentation/`)**
 - State management: `flutter_bloc` (Bloc for event-driven flows, Cubit for simple state).
@@ -116,12 +131,25 @@ test/                                  # mirrors lib/ exactly
 - States are immutable; prefer a `sealed class` hierarchy and exhaustive `switch` in widgets.
 - Widgets contain no business logic; pages obtain their Bloc via `BlocProvider(create: (_) => sl<...>())`.
 
+- `AuthBloc` (session status: `AuthUnknown` / `Authenticated` / `Unauthenticated`) is provided once
+  in `app.dart`; the router redirects on it. Form submission state lives in page-scoped Cubits such
+  as `LoginCubit`.
+
 **Cross-feature:** a feature may import another feature's `domain/` only — never its `data/` or
-`presentation/`. Anything needed more widely moves to `core/`.
+`presentation/`. Anything needed more widely moves to `core/`. When a page needs something from
+another feature's presentation (e.g. the signed-in user, a logout callback), the router passes it in
+as constructor arguments — see `HomePage`.
+
+**Composition roots:** `core/di/`, `core/router/` and `app.dart` wire features together, so they are
+the only places outside a feature allowed to import that feature's `data/` or `presentation/`.
 
 **Dependency injection:** register everything in `core/di/` with `get_it` (`sl`). Data sources,
-repositories and use cases are lazy singletons; Blocs are factories. Only `core/di`, `main.dart` and
-pages (via `BlocProvider`) may touch `sl`.
+repositories and use cases are lazy singletons; Blocs/Cubits are factories. Only `core/di`, `app.dart`
+and pages (inside `BlocProvider.create`) may touch `sl`.
+
+**Enforced:** `test/architecture_test.dart` fails if domain (or `core/error`, `core/usecase`) imports
+anything but `dart:` and other pure files, if presentation and data import each other, or if a feature
+reaches into another feature's non-domain layers.
 
 ### Adding a feature — order of work
 
@@ -133,8 +161,12 @@ pages (via `BlocProvider`) may touch `sl`.
 ## Testing
 
 - `test/` mirrors `lib/` file for file (`login_usecase.dart` → `login_usecase_test.dart`).
-- Mock collaborators with `mockito` + `build_runner` (see the `dart-generate-test-mocks` skill);
-  test each layer against mocks of the layer beneath it.
+- Mock collaborators with `mockito` + `build_runner` (see the `dart-generate-test-mocks` skill): add a
+  `MockSpec` to `test/helpers/mocks.dart`, rerun `build_runner`, and call `setUpAll(provideResultDummies)`
+  in tests that stub methods returning `Result` (mockito cannot fake a sealed type — add new
+  `provideDummy<Result<X>>` lines there as needed). Shared fixtures live in `test/helpers/fixtures.dart`.
+- Test each layer against mocks of the layer beneath it; Blocs/Cubits with `bloc_test`; `ApiClient`
+  with `package:http/testing.dart`'s `MockClient`.
 
 ## Agent skills (`.claude/skills/`)
 
