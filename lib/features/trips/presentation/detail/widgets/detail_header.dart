@@ -220,7 +220,10 @@ class _Route extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Flexible(
+        // Fixed max width per side so the middle line takes the rest and the
+        // destination sits on the right edge, as in the design.
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 130),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -265,7 +268,8 @@ class _Route extends StatelessWidget {
             ),
           ),
         ),
-        Flexible(
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 130),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
