@@ -4,41 +4,32 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../error/exceptions.dart';
-import 'auth_tokens.dart';
-import 'token_storage.dart';
+import 'access_token_provider.dart';
 
 /// JSON client for the NestJS API.
 ///
-/// Authenticated requests carry `Authorization: Bearer <access token>`. The
-/// access token is refreshed shortly before it expires and once more on a 401.
-/// Refreshes are single-flight: the backend revokes the whole session when a
-/// refresh token is reused, so two concurrent refreshes would sign the user out.
+/// Authenticated requests carry `Authorization: Bearer <access token>` from
+/// the [AccessTokenProvider]. On a 401 the token is refreshed once and the
+/// request retried; if that fails the provider ends the session.
 ///
 /// Throws [UnauthorizedException], [ServerException] or [NetworkException].
 class ApiClient {
   ApiClient({
     required http.Client httpClient,
-    required TokenStorage tokenStorage,
+    required AccessTokenProvider tokens,
     required String baseUrl,
-    DateTime Function()? clock,
     Duration timeout = const Duration(seconds: 20),
   }) : _http = httpClient,
-       _tokens = tokenStorage,
+       _tokens = tokens,
        _baseUrl = baseUrl.endsWith('/')
            ? baseUrl.substring(0, baseUrl.length - 1)
            : baseUrl,
-       _clock = clock ?? DateTime.now,
        _timeout = timeout;
 
-  static const _refreshMargin = Duration(seconds: 30);
-
   final http.Client _http;
-  final TokenStorage _tokens;
+  final AccessTokenProvider _tokens;
   final String _baseUrl;
-  final DateTime Function() _clock;
   final Duration _timeout;
-
-  Future<AuthTokens?>? _refreshInFlight;
 
   Future<Object?> get(
     String path, {
@@ -68,62 +59,23 @@ class ApiClient {
     Object? body,
     required bool authenticated,
   }) async {
-    final uri = Uri.parse('$_baseUrl$path').replace(queryParameters: query);
+    final uri = Uri.parse(
+      '$_baseUrl$path',
+    ).replace(queryParameters: query == null || query.isEmpty ? null : query);
     if (!authenticated) {
       return _decode(await _request(method, uri, body, null));
     }
 
-    var tokens = await _tokens.read();
-    if (tokens == null) throw const UnauthorizedException('Not signed in.');
-    if (tokens.expiresWithin(_refreshMargin, _clock())) {
-      tokens = await _refresh(tokens);
-    }
+    final token = await _tokens.accessToken();
+    if (token == null) throw const UnauthorizedException('Not signed in.');
 
-    var response = await _request(method, uri, body, tokens.accessToken);
+    var response = await _request(method, uri, body, token);
     if (response.statusCode == 401) {
-      tokens = await _refresh(tokens);
-      response = await _request(method, uri, body, tokens.accessToken);
+      final fresh = await _tokens.refreshAfterRejection(token);
+      if (fresh == null) throw const UnauthorizedException();
+      response = await _request(method, uri, body, fresh);
     }
     return _decode(response);
-  }
-
-  /// Returns fresh tokens or throws [UnauthorizedException] (session cleared).
-  Future<AuthTokens> _refresh(AuthTokens stale) async {
-    final fresh = await (_refreshInFlight ??= _rotate(
-      stale,
-    ).whenComplete(() => _refreshInFlight = null));
-    if (fresh == null) throw const UnauthorizedException();
-    return fresh;
-  }
-
-  Future<AuthTokens?> _rotate(AuthTokens stale) async {
-    // Another request may already have rotated: sending the old refresh token
-    // again would count as reuse and revoke the session.
-    final current = await _tokens.read();
-    if (current == null) return null;
-    if (current.refreshToken != stale.refreshToken) return current;
-
-    final response = await _request(
-      'POST',
-      Uri.parse('$_baseUrl/auth/refresh'),
-      {'refresh_token': current.refreshToken},
-      null,
-    );
-    if (response.statusCode == 400 || response.statusCode == 401) {
-      await _tokens.clear();
-      return null;
-    }
-    final json = _decode(response);
-    if (json case {'session': final Map<String, Object?> session}) {
-      try {
-        final fresh = AuthTokens.fromSessionJson(session);
-        await _tokens.write(fresh);
-        return fresh;
-      } on FormatException {
-        // Falls through to the error below.
-      }
-    }
-    throw const ServerException('Unexpected response from server.');
   }
 
   Future<http.Response> _request(
@@ -175,12 +127,19 @@ class ApiClient {
 
   static bool _isSuccess(int status) => status >= 200 && status < 300;
 
-  /// NestJS errors look like `{statusCode, message, error}`, where `message`
-  /// is a string or (for validation errors) a list of strings.
+  /// NestJS errors are `{statusCode, message, error}`, where `message` is a
+  /// string or (for validation errors) a list of strings. Some routes wrap
+  /// it as `{success: false, error: {message}}`.
   static String? _errorMessage(Object? json) => switch (json) {
-    {'message': final String message} => message,
-    {'message': final List<Object?> messages} when messages.isNotEmpty =>
-      messages.whereType<String>().join('\n'),
+    {'error': {'message': final Object? inner}} => _messageText(inner),
+    {'message': final Object? message} => _messageText(message),
+    _ => null,
+  };
+
+  static String? _messageText(Object? message) => switch (message) {
+    final String text when text.isNotEmpty => text,
+    final List<Object?> items when items.isNotEmpty =>
+      items.whereType<String>().join('\n'),
     _ => null,
   };
 }

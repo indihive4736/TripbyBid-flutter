@@ -46,3 +46,12 @@ final class CacheException extends AppException {
   @override
   Failure toFailure() => CacheFailure(message);
 }
+
+final class EmailNotVerifiedException extends AppException {
+  const EmailNotVerifiedException([
+    super.message = 'Verify your email first — use the code we sent you.',
+  ]);
+
+  @override
+  Failure toFailure() => EmailNotVerifiedFailure(message);
+}

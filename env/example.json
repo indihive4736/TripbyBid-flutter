@@ -1,0 +1,6 @@
+{
+  "API_BASE_URL": "http://10.0.2.2:3001/api",
+  "SUPABASE_URL": "https://<project>.supabase.co",
+  "SUPABASE_ANON_KEY": "<supabase anon key>",
+  "CASHFREE_ENV": "sandbox"
+}

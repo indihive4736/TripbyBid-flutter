@@ -1,39 +1,31 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:tripbybid/core/error/exceptions.dart';
+import 'package:tripbybid/core/network/access_token_provider.dart';
 import 'package:tripbybid/core/network/api_client.dart';
-import 'package:tripbybid/core/network/auth_tokens.dart';
-import 'package:tripbybid/core/network/token_storage.dart';
 
-class InMemoryTokenStorage implements TokenStorage {
-  InMemoryTokenStorage([this.tokens]);
+class FakeTokens implements AccessTokenProvider {
+  FakeTokens({this.token = 'access-1', this.refreshed = 'access-2'});
 
-  AuthTokens? tokens;
+  String? token;
 
-  @override
-  Future<AuthTokens?> read() async => tokens;
-
-  @override
-  Future<void> write(AuthTokens tokens) async => this.tokens = tokens;
+  /// What a refresh yields; null means the session is gone.
+  String? refreshed;
+  final rejected = <String>[];
 
   @override
-  Future<void> clear() async => tokens = null;
+  Future<String?> accessToken() async => token;
+
+  @override
+  Future<String?> refreshAfterRejection(String rejected) async {
+    this.rejected.add(rejected);
+    token = refreshed;
+    return refreshed;
+  }
 }
-
-final now = DateTime.utc(2026, 10, 10, 12);
-
-AuthTokens tokens(
-  String id, {
-  Duration validFor = const Duration(minutes: 10),
-}) => AuthTokens(
-  accessToken: 'access-$id',
-  refreshToken: 'refresh-$id',
-  expiresAt: now.add(validFor),
-);
 
 http.Response json(Object? body, [int status = 200]) => http.Response(
   jsonEncode(body),
@@ -41,19 +33,8 @@ http.Response json(Object? body, [int status = 200]) => http.Response(
   headers: {'content-type': 'application/json'},
 );
 
-Map<String, Object?> sessionJson(String id) => {
-  'session': {
-    'access_token': 'access-$id',
-    'refresh_token': 'refresh-$id',
-    'expires_in': 900,
-    'expires_at':
-        now.add(const Duration(minutes: 15)).millisecondsSinceEpoch ~/ 1000,
-    'token_type': 'bearer',
-  },
-};
-
 void main() {
-  late InMemoryTokenStorage storage;
+  late FakeTokens tokens;
   late List<http.Request> requests;
 
   ApiClient client(Future<http.Response> Function(http.Request) handler) =>
@@ -62,13 +43,12 @@ void main() {
           requests.add(request);
           return handler(request);
         }),
-        tokenStorage: storage,
+        tokens: tokens,
         baseUrl: 'https://api.test/api/',
-        clock: () => now,
       );
 
   setUp(() {
-    storage = InMemoryTokenStorage(tokens('1'));
+    tokens = FakeTokens();
     requests = [];
   });
 
@@ -85,8 +65,16 @@ void main() {
     expect(jsonDecode(request.body), {'amount': 10});
   });
 
+  test('adds query parameters', () async {
+    final api = client((_) async => json([]));
+
+    await api.get('/booking-requests', query: {'limit': '100'});
+
+    expect(requests.single.url.queryParameters, {'limit': '100'});
+  });
+
   test('unauthenticated requests carry no token and need no session', () async {
-    storage.tokens = null;
+    tokens.token = null;
     final api = client((_) async => json({'ok': true}));
 
     await api.post('/auth/login', body: {}, authenticated: false);
@@ -95,131 +83,77 @@ void main() {
   });
 
   test('authenticated request without a session throws Unauthorized', () {
-    storage.tokens = null;
+    tokens.token = null;
     final api = client((_) async => json({}));
 
-    expect(api.get('/auth/me'), throwsA(isA<UnauthorizedException>()));
+    expect(api.get('/users/me'), throwsA(isA<UnauthorizedException>()));
   });
 
   test('on 401 refreshes once and retries with the new token', () async {
-    final api = client((request) async {
-      if (request.url.path.endsWith('/auth/refresh')) {
-        expect(jsonDecode(request.body), {'refresh_token': 'refresh-1'});
-        return json(sessionJson('2'));
-      }
-      return request.headers['Authorization'] == 'Bearer access-2'
+    final api = client(
+      (request) async => request.headers['Authorization'] == 'Bearer access-2'
           ? json({'id': 'u-1'})
-          : json({'statusCode': 401, 'message': 'Invalid token'}, 401);
-    });
+          : json({'statusCode': 401, 'message': 'Invalid token'}, 401),
+    );
 
-    expect(await api.get('/auth/me'), {'id': 'u-1'});
-    expect(storage.tokens?.refreshToken, 'refresh-2');
-    expect(requests.map((r) => r.url.path), [
-      '/api/auth/me',
-      '/api/auth/refresh',
-      '/api/auth/me',
-    ]);
+    expect(await api.get('/users/me'), {'id': 'u-1'});
+    expect(tokens.rejected, ['access-1']);
+    expect(requests, hasLength(2));
   });
 
-  test(
-    'refreshes before sending when the access token is about to expire',
-    () async {
-      storage.tokens = tokens('1', validFor: const Duration(seconds: 10));
-      final api = client(
-        (request) async => request.url.path.endsWith('/auth/refresh')
-            ? json(sessionJson('2'))
-            : json({'ok': true}),
-      );
+  test('when the refresh fails the call throws Unauthorized', () async {
+    tokens.refreshed = null;
+    final api = client((_) async => json({'message': 'Invalid token'}, 401));
 
-      await api.get('/bids/agent/my');
+    await expectLater(
+      api.get('/users/me'),
+      throwsA(isA<UnauthorizedException>()),
+    );
+    expect(requests, hasLength(1));
+  });
 
-      expect(requests.first.url.path, '/api/auth/refresh');
-      expect(requests.last.headers['Authorization'], 'Bearer access-2');
-    },
-  );
+  test('maps NestJS validation errors to ServerException', () async {
+    final api = client(
+      (_) async => json({
+        'statusCode': 400,
+        'message': ['email must be an email', 'password is too short'],
+        'error': 'Bad Request',
+      }, 400),
+    );
 
-  test('concurrent 401s share one refresh (a reused refresh token would '
-      'revoke the session)', () async {
-    final refreshGate = Completer<void>();
-    final api = client((request) async {
-      if (request.url.path.endsWith('/auth/refresh')) {
-        await refreshGate.future;
-        return json(sessionJson('2'));
-      }
-      return request.headers['Authorization'] == 'Bearer access-2'
-          ? json({'ok': true})
-          : json({'message': 'Invalid token'}, 401);
-    });
-
-    final calls = [api.get('/a'), api.get('/b'), api.get('/c')];
-    await Future<void>.delayed(Duration.zero);
-    refreshGate.complete();
-    await Future.wait(calls);
-
-    expect(
-      requests.where((r) => r.url.path.endsWith('/auth/refresh')),
-      hasLength(1),
+    await expectLater(
+      api.post('/booking-requests', body: {}),
+      throwsA(
+        isA<ServerException>()
+            .having((e) => e.statusCode, 'statusCode', 400)
+            .having(
+              (e) => e.message,
+              'message',
+              'email must be an email\npassword is too short',
+            ),
+      ),
     );
   });
 
-  test(
-    'does not resend a refresh token another request already rotated',
-    () async {
-      final api = client((request) async {
-        if (request.url.path.endsWith('/auth/refresh')) {
-          fail('must not refresh: storage already holds rotated tokens');
-        }
-        if (request.headers['Authorization'] == 'Bearer access-1') {
-          // Simulates another request having rotated while this one was in flight.
-          storage.tokens = tokens('2');
-          return json({'message': 'Invalid token'}, 401);
-        }
-        return json({'ok': true});
-      });
+  test('reads the wrapped {error: {message}} envelope', () async {
+    final api = client(
+      (_) async => json({
+        'success': false,
+        'error': {'code': 'CONFLICT', 'message': 'Bid is no longer available'},
+      }, 409),
+    );
 
-      expect(await api.get('/a'), {'ok': true});
-    },
-  );
-
-  test(
-    'a rejected refresh clears the session and throws Unauthorized',
-    () async {
-      final api = client(
-        (request) async => request.url.path.endsWith('/auth/refresh')
-            ? json({'message': 'Invalid refresh token'}, 401)
-            : json({'message': 'Invalid token'}, 401),
-      );
-
-      await expectLater(api.get('/a'), throwsA(isA<UnauthorizedException>()));
-      expect(storage.tokens, isNull);
-    },
-  );
-
-  test(
-    'maps NestJS errors to ServerException with the server message',
-    () async {
-      final api = client(
-        (_) async => json({
-          'statusCode': 400,
-          'message': ['email must be an email', 'password is too short'],
-          'error': 'Bad Request',
-        }, 400),
-      );
-
-      await expectLater(
-        api.post('/auth/login', body: {}, authenticated: false),
-        throwsA(
-          isA<ServerException>()
-              .having((e) => e.statusCode, 'statusCode', 400)
-              .having(
-                (e) => e.message,
-                'message',
-                'email must be an email\npassword is too short',
-              ),
+    await expectLater(
+      api.post('/bids/b-1/accept'),
+      throwsA(
+        isA<ServerException>().having(
+          (e) => e.message,
+          'message',
+          'Bid is no longer available',
         ),
-      );
-    },
-  );
+      ),
+    );
+  });
 
   test('connection failures become NetworkException', () {
     final api = client((_) async => throw http.ClientException('offline'));
@@ -230,6 +164,6 @@ void main() {
   test('an empty 2xx body decodes to null', () async {
     final api = client((_) async => http.Response('', 200));
 
-    expect(await api.get('/auth/me'), isNull);
+    expect(await api.get('/bookings/request/r-1'), isNull);
   });
 }

@@ -7,6 +7,8 @@ final class LoginState extends Equatable {
     this.status = LoginStatus.initial,
     this.user,
     this.errorMessage,
+    this.emailNotVerified = false,
+    this.email,
   });
 
   final LoginStatus status;
@@ -17,6 +19,19 @@ final class LoginState extends Equatable {
   /// Set when [status] is [LoginStatus.failure].
   final String? errorMessage;
 
+  /// The failure was an unverified email: the screen should move on to the
+  /// code entry for [email].
+  final bool emailNotVerified;
+
+  /// The address to verify, set with [emailNotVerified].
+  final String? email;
+
   @override
-  List<Object?> get props => [status, user, errorMessage];
+  List<Object?> get props => [
+    status,
+    user,
+    errorMessage,
+    emailNotVerified,
+    email,
+  ];
 }

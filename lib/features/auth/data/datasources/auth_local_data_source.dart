@@ -3,40 +3,22 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../../../core/error/exceptions.dart';
-import '../../../../core/network/auth_tokens.dart';
-import '../../../../core/network/token_storage.dart';
 import '../models/user_model.dart';
 
-/// The session tokens plus a cached copy of the profile, so the app can start
-/// signed in while offline.
+/// A cached copy of the profile, so the app can start signed in while
+/// offline. (The session itself is persisted by Supabase.)
 abstract interface class AuthLocalDataSource {
-  Future<void> saveSession(AuthTokens tokens, UserModel user);
-  Future<bool> hasSession();
   Future<UserModel?> getCachedUser();
   Future<void> cacheUser(UserModel user);
-  Future<void> clearSession();
+  Future<void> clear();
 }
 
 class AuthLocalDataSourceImpl implements AuthLocalDataSource {
-  const AuthLocalDataSourceImpl({
-    required TokenStorage tokenStorage,
-    required FlutterSecureStorage secureStorage,
-  }) : _tokens = tokenStorage,
-       _storage = secureStorage;
+  const AuthLocalDataSourceImpl(this._storage);
 
   static const _userKey = 'cached_user';
 
-  final TokenStorage _tokens;
   final FlutterSecureStorage _storage;
-
-  @override
-  Future<void> saveSession(AuthTokens tokens, UserModel user) async {
-    await _tokens.write(tokens);
-    await cacheUser(user);
-  }
-
-  @override
-  Future<bool> hasSession() async => await _tokens.read() != null;
 
   @override
   Future<UserModel?> getCachedUser() async {
@@ -64,8 +46,7 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
   }
 
   @override
-  Future<void> clearSession() async {
-    await _tokens.clear();
+  Future<void> clear() async {
     try {
       await _storage.delete(key: _userKey);
     } on Exception {

@@ -1,29 +1,31 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
 import 'package:tripbybid/core/error/failures.dart';
 import 'package:tripbybid/core/error/result.dart';
 import 'package:tripbybid/features/auth/domain/usecases/login_usecase.dart';
+import 'package:tripbybid/features/auth/domain/usecases/sign_up_usecases.dart';
 import 'package:tripbybid/features/auth/presentation/bloc/login_cubit.dart';
 
+import '../../../../helpers/fakes.dart';
 import '../../../../helpers/fixtures.dart';
-import '../../../../helpers/mocks.dart';
 
 void main() {
-  late MockLoginUseCase login;
+  late FakeAuthRepository repository;
 
-  setUpAll(provideResultDummies);
+  setUp(() => repository = FakeAuthRepository());
 
-  setUp(() => login = MockLoginUseCase());
+  LoginCubit build() => LoginCubit(login: LoginUseCase(repository));
 
-  const params = LoginParams(email: 'asha@example.com', password: 'secret');
+  LoginCubit buildWithResend() => LoginCubit(
+    login: LoginUseCase(repository),
+    resendCode: ResendCodeUseCase(repository),
+  );
 
   blocTest<LoginCubit, LoginState>(
     'emits submitting then success with the user',
-    setUp: () => when(login(params)).thenAnswer((_) async => const Ok(tUser)),
-    build: () => LoginCubit(login: login),
-    act: (cubit) =>
-        cubit.submit(email: params.email, password: params.password),
+    setUp: () => repository.loginResult = const Ok(tUser),
+    build: build,
+    act: (cubit) => cubit.submit(email: 'asha@example.com', password: 'secret'),
     expect: () => [
       const LoginState(status: LoginStatus.submitting),
       const LoginState(status: LoginStatus.success, user: tUser),
@@ -32,27 +34,84 @@ void main() {
 
   blocTest<LoginCubit, LoginState>(
     'emits submitting then failure with the failure message',
-    setUp: () => when(login(any)).thenAnswer(
-      (_) async => const Err(UnauthorizedFailure('Invalid credentials')),
+    setUp: () => repository.loginResult = const Err(
+      UnauthorizedFailure('Email or password is incorrect.'),
     ),
-    build: () => LoginCubit(login: login),
-    act: (cubit) => cubit.submit(email: params.email, password: 'wrong'),
+    build: build,
+    act: (cubit) => cubit.submit(email: 'asha@example.com', password: 'wrong'),
     expect: () => [
       const LoginState(status: LoginStatus.submitting),
       const LoginState(
         status: LoginStatus.failure,
-        errorMessage: 'Invalid credentials',
+        errorMessage: 'Email or password is incorrect.',
       ),
     ],
   );
 
   blocTest<LoginCubit, LoginState>(
     'ignores a submit while one is in flight',
-    build: () => LoginCubit(login: login),
+    build: build,
     seed: () => const LoginState(status: LoginStatus.submitting),
-    act: (cubit) =>
-        cubit.submit(email: params.email, password: params.password),
+    act: (cubit) => cubit.submit(email: 'asha@example.com', password: 'secret'),
     expect: () => <LoginState>[],
-    verify: (_) => verifyZeroInteractions(login),
+    verify: (_) => expect(repository.calls, isEmpty),
+  );
+
+  blocTest<LoginCubit, LoginState>(
+    'an unverified email resends the code and flags code entry',
+    setUp: () => repository.loginResult = const Err(EmailNotVerifiedFailure()),
+    build: buildWithResend,
+    act: (cubit) =>
+        cubit.submit(email: ' Asha@Example.com ', password: 'secret'),
+    expect: () => [
+      const LoginState(status: LoginStatus.submitting),
+      const LoginState(
+        status: LoginStatus.failure,
+        errorMessage: LoginCubit.codeResentMessage,
+        emailNotVerified: true,
+        email: 'asha@example.com',
+      ),
+    ],
+    verify: (_) => expect(repository.calls, [
+      'login:Asha@Example.com',
+      'resend:asha@example.com',
+    ]),
+  );
+
+  blocTest<LoginCubit, LoginState>(
+    'an unverified email still flags code entry when the resend fails',
+    setUp: () {
+      repository
+        ..loginResult = const Err(EmailNotVerifiedFailure())
+        ..resendResult = const Err(NetworkFailure());
+    },
+    build: buildWithResend,
+    act: (cubit) => cubit.submit(email: 'asha@example.com', password: 'x'),
+    skip: 1,
+    expect: () => [
+      LoginState(
+        status: LoginStatus.failure,
+        errorMessage: const EmailNotVerifiedFailure().message,
+        emailNotVerified: true,
+        email: 'asha@example.com',
+      ),
+    ],
+  );
+
+  blocTest<LoginCubit, LoginState>(
+    'without a resend use case an unverified email still flags code entry',
+    setUp: () => repository.loginResult = const Err(EmailNotVerifiedFailure()),
+    build: build,
+    act: (cubit) => cubit.submit(email: 'asha@example.com', password: 'x'),
+    skip: 1,
+    expect: () => [
+      LoginState(
+        status: LoginStatus.failure,
+        errorMessage: const EmailNotVerifiedFailure().message,
+        emailNotVerified: true,
+        email: 'asha@example.com',
+      ),
+    ],
+    verify: (_) => expect(repository.calls, ['login:asha@example.com']),
   );
 }

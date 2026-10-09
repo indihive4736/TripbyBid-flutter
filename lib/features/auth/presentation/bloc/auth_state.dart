@@ -22,5 +22,12 @@ final class Authenticated extends AuthState {
 }
 
 final class Unauthenticated extends AuthState {
-  const Unauthenticated();
+  const Unauthenticated({this.sessionExpired = false});
+
+  /// True when the user was signed out because the session ended, so the
+  /// login screen can say why.
+  final bool sessionExpired;
+
+  @override
+  List<Object?> get props => [sessionExpired];
 }
